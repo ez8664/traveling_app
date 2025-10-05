@@ -9,6 +9,7 @@
     "typecheck": "react-router typegen && tsc"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@react-router/node": "^7.7.1",
     "@react-router/serve": "^7.7.1",
     "@sentry/profiling-node": "^10.15.0",
@@ -36,10 +37,10 @@
     "@types/node": "^20",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
+    "cross-env": "^7.0.3",
     "tailwindcss": "^4.1.4",
     "typescript": "^5.8.3",
     "vite": "^6.3.3",
-    "vite-tsconfig-paths": "^5.1.4",
-    "cross-env": "^7.0.3"
+    "vite-tsconfig-paths": "^5.1.4"
   }
 }
