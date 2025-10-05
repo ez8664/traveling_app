@@ -1,23 +1,61 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { ID } from "appwrite";
-import { data, type ActionFunctionArgs } from "react-router";
+import { data, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
 import { appwriteConfig, database } from "~/appwrite/client";
 import { parseMarkdownToJson } from "~/lib/utils";
+
+export const loader = async ({ request }: LoaderFunctionArgs) => {
+    return new Response(JSON.stringify({ error: "Method not allowed. Use POST to create trips." }), {
+        status: 405,
+        headers: { "Content-Type": "application/json" }
+    });
+};
+
 export const action = async ({ request }: ActionFunctionArgs) => {
-    const {
-        country,
-        numberOfDays,
-        travelStyle,
-        interest,
-        budget,
-        groupType,
-        userId,
-    } = await request.json();
-
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-    const unsplashApiKey = process.env.UNSPLASH_ACCESS_KEY;
-
     try {
+        // Validate request body
+        const body = await request.json();
+        const {
+            country,
+            numberOfDays,
+            travelStyle,
+            interest,
+            budget,
+            groupType,
+            userId,
+        } = body;
+
+        // Validate required fields
+        if (!country || !numberOfDays || !travelStyle || !interest || !budget || !groupType || !userId) {
+            return new Response(JSON.stringify({ 
+                error: "Missing required fields",
+                required: ["country", "numberOfDays", "travelStyle", "interest", "budget", "groupType", "userId"]
+            }), {
+                status: 400,
+                headers: { "Content-Type": "application/json" }
+            });
+        }
+
+        // Validate environment variables
+        if (!process.env.GEMINI_API_KEY) {
+            console.error("GEMINI_API_KEY environment variable is not set");
+            return new Response(JSON.stringify({ error: "Server configuration error" }), {
+                status: 500,
+                headers: { "Content-Type": "application/json" }
+            });
+        }
+
+        if (!process.env.UNSPLASH_ACCESS_KEY) {
+            console.error("UNSPLASH_ACCESS_KEY environment variable is not set");
+            return new Response(JSON.stringify({ error: "Server configuration error" }), {
+                status: 500,
+                headers: { "Content-Type": "application/json" }
+            });
+        }
+
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+        const unsplashApiKey = process.env.UNSPLASH_ACCESS_KEY;
+
         const prompt = `Generate a ${numberOfDays}-day travel itinerary for ${country} based on the following user information:
         Budget: '${budget}'
         Interests: '${interest}'
@@ -65,20 +103,40 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         ]
         }`;
 
+        console.log("Generating trip with Gemini...");
         const textResult = await genAI
-            .getGenerativeModel({ model: 'gemini-2.0-flash' })
-            .generateContent([prompt])
+            .getGenerativeModel({ model: 'gemini-2.0-flash-exp' })
+            .generateContent([prompt]);
 
-        const trip = parseMarkdownToJson(textResult.response.text());
+        const responseText = textResult.response.text();
+        console.log("Gemini response received, parsing...");
+        
+        const trip = parseMarkdownToJson(responseText);
+        if (!trip) {
+            console.error("Failed to parse Gemini response:", responseText);
+            return new Response(JSON.stringify({ error: "Failed to parse AI response" }), {
+                status: 500,
+                headers: { "Content-Type": "application/json" }
+            });
+        }
 
+        console.log("Fetching images from Unsplash...");
         const imageResponse = await fetch(
-            `https://api.unsplash.com/search/photo?query=${country} ${interest} ${travelStyle}&client_id=${unsplashApiKey}`
+            `https://api.unsplash.com/search/photos?query=${encodeURIComponent(country + ' ' + interest + ' ' + travelStyle)}&client_id=${unsplashApiKey}&per_page=3`
         );
 
-        const imageUrls = (await imageResponse.json()).results.slice(0, 3).map(
-            (result: any) => result.urls?.regular || null
-        )
+        let imageUrls = [];
+        if (imageResponse.ok) {
+            const imageData = await imageResponse.json();
+            imageUrls = imageData.results?.slice(0, 3).map(
+                (result: any) => result.urls?.regular || null
+            ).filter(Boolean) || [];
+        } else {
+            console.warn("Failed to fetch images from Unsplash:", imageResponse.status);
+            imageUrls = []; // Continue without images
+        }
 
+        console.log("Saving trip to database...");
         const result = await database.createDocument(
             appwriteConfig.databaseId,
             appwriteConfig.tripsCollectionId,
@@ -89,9 +147,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                 imageUrls,
                 userId,
             }
-        )
-        return data({ id: result.$id })
+        );
+
+        console.log("Trip created successfully:", result.$id);
+        return data({ id: result.$id, success: true });
+
     } catch (e) {
         console.error("Error generating trip:", e);
+        return new Response(JSON.stringify({ 
+            error: "Internal server error",
+            details: e instanceof Error ? e.message : "Unknown error"
+        }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" }
+        });
     }
 }
