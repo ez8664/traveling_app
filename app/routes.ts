@@ -1,6 +1,7 @@
 import { type RouteConfig, index, layout, route } from "@react-router/dev/routes";
 
 export default [
+    index('routes/root/index.tsx'), // Root redirect to sign-in
     route('sign-in', 'routes/root/sign-in.tsx'),
     route('api/create-trip', 'routes/api/create-trip.ts'),
     layout('routes/admin/admin-layout.tsx', [
@@ -11,6 +12,6 @@ export default [
         route('trips/:tripId', 'routes/admin/trip-detail.tsx'),
     ]),
     layout('routes/root/page-layout.tsx', [
-        index('routes/root/travel-page.tsx')
+        route('travel', 'routes/root/travel-page.tsx')
     ])
 ] satisfies RouteConfig;
